@@ -1,0 +1,58 @@
+name: build-windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      server:
+        description: "Relay server address, host:port (e.g. relay.example.com:4433)"
+        required: true
+        type: string
+      server_fp:
+        description: "Relay server certificate SHA-256 fingerprint (64 hex chars)"
+        required: true
+        default: "19c24beaca2ecb14548d258fb01986e934dad738ca43220e0983f6fdb8d437a3"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri -> target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: client
+        run: npm ci
+
+      - name: Build installer (server address and fingerprint compiled in)
+        working-directory: client
+        env:
+          AIRHAND_SERVER: ${{ inputs.server }}
+          AIRHAND_SERVER_FP: ${{ inputs.server_fp }}
+        run: npm run tauri build
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Airhand-Windows-x64
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            client/src-tauri/target/release/bundle/nsis/*.exe
